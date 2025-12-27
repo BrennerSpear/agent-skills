@@ -42,19 +42,45 @@ Transform unstructured brain dump text (typically voice transcriptions) into a s
 
 ## Instructions
 
-1. **Read the brain dump file** using the Read tool
-2. **Filter signal from noise**: Brain dumps often contain:
-   - Casual conversation (ignore)
-   - Background chatter (ignore)
-   - Actual actionable items (extract)
-3. **Identify actionable items** by looking for phrases like:
-   - "I need to..." / "I should..." / "We need to..."
-   - "Research topic..." / "Look into..."
-   - "Order..." / "Buy..."
-   - Ideas that need documentation or specs
-4. **Classify each task** into the appropriate type
-5. **Generate the JSON output** with all extracted tasks
-6. **Write the JSON** to a file named `tasks.json` in the same directory as the input file
+**Important**: Use sub-agents for processing steps to avoid clogging the main context with raw transcript content.
+
+1. **Format the raw dump** — Spawn a sub-agent with this prompt:
+   ```
+   Run the formatting script on the brain dump file:
+   npx ts-node /Users/brenner/repos/ClaudeCodeSkills/process-brain-dump/format-raw-dump.ts <path-to-raw-dump.txt>
+
+   Report back the number of sentences extracted and confirm the output file path.
+   ```
+
+2. **Filter out noise** — Spawn a sub-agent with this prompt:
+   ```
+   Read <directory>/raw-dump-formatted.txt and filter out noise.
+
+   REMOVE sentences that are:
+   - Filler words and acknowledgments ("Yeah", "Okay", "Mm-hmm", "Uh...", "Hmm")
+   - In-the-moment conversation being resolved ("There's two in there", "That's okay, so it's for you")
+   - Reactions and observations with no future action ("You look too rich right now")
+   - Questions being answered in real-time during the conversation
+   - Past tense completions where action already happened ("I just started to make some")
+   - Background chatter unrelated to the speaker's intentions
+
+   KEEP sentences that:
+   - Express intent for future action ("I need to...", "I should...", "We need to...")
+   - Request research or information gathering ("Research topic...", "Look into...")
+   - Mention items to order or purchase
+   - Contain ideas worth documenting or exploring
+   - Provide important context for an adjacent actionable sentence
+
+   Write only the kept sentences to <directory>/raw-dump-filtered.txt, one per line, preserving original order.
+   Report back how many sentences were kept out of the original count.
+   ```
+
+3. **Extract, classify, and write tasks** — The main agent performs this step directly:
+   - Read `<directory>/raw-dump-filtered.txt` (now small enough for main context)
+   - For each sentence or group of related sentences, determine if it's actionable
+   - Classify into exactly one task type (see Task Types above — mutually exclusive)
+   - Generate the JSON following the Output Schema above
+   - Write to `<directory>/tasks.json`
 
 ## Example Extraction
 
