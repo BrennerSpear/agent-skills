@@ -61,7 +61,7 @@ Return: "Added X items to todo-list.md (skipped Y already done)"
 ### Orders Sub-Agent
 
 ```
-Find purchase links for order items.
+Find purchase links for order items and notify via SMS.
 
 tasks.json path: [full-path-to-tasks.json]
 Folder: [brain-dump-folder-path]
@@ -71,9 +71,10 @@ For each task at the given indices:
 1. Skip if status is "completed"
 2. Web search for 2-3 purchase links (official site for branded items, Amazon for generic)
 3. Append to order-list.md with item title, details, and links
-4. Update the task in tasks.json: set status="completed", add completed_at timestamp
+4. Send SMS notification via Twilio MCP with title and all links (double newline between each for readability): "New order item: [Title]\n\n[Link 1]\n\n[Link 2]\n\n[Link 3]"
+5. Update the task in tasks.json: set status="completed", add completed_at timestamp
 
-Return: "Found links for X items, saved to order-list.md (skipped Y already done)"
+Return: "Found links for X items, saved to order-list.md, sent X SMS notifications (skipped Y already done)"
 ```
 
 ---
