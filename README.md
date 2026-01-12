@@ -23,7 +23,7 @@ skill-name/
 
 ## Skills
 
-- `example-greeting` - A simple example skill
 - `process-brain-dump` - Process voice transcripts/brain dumps into structured task JSON
 - `execute-brain-dump-tasks` - Execute tasks from processed brain dump (research, memos, specs, todos, orders)
 - `check-research` - Poll async research tasks and save completed results
+- `create-mcp` - Create a new MCP server from API documentation
