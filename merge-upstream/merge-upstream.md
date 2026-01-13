@@ -63,18 +63,19 @@ Technical notes:
 
 Write this message to `/tmp/merge-upstream-msg.txt`.
 
-### 3. Execute Merge
+### 3. Execute Rebase
 
 ```bash
 # Now run the script with the commit message
+# This rebases the squashed upstream commit onto your current branch (linear history)
 if "$SKILL_DIR/merge-upstream.sh" "$UPSTREAM" "/tmp/merge-upstream-msg.txt"; then
-  echo "✓ Merge completed successfully!"
+  echo "✓ Rebase completed successfully!"
   exit 0
 elif [ $? -eq 2 ]; then
   echo "⚠ Conflicts detected - analyzing..."
   # Continue to conflict resolution
 else
-  echo "✗ Merge failed"
+  echo "✗ Rebase failed"
   exit 1
 fi
 ```
@@ -140,7 +141,51 @@ The script will:
 - Delete temporary and backup branches
 - Show merge summary
 
-### 6. Cleanup Temp Files
+### 6. Push and Create PR
+
+After merge is complete and tests pass:
+
+```bash
+# Push the feature branch
+git push -u origin <current-branch>
+
+# Create PR with gh CLI
+gh pr create --title "feat: merge upstream changes from <author>" --body "$(cat <<'EOF'
+## Summary
+
+Merges N commits from upstream squashed into one clean commit.
+
+### Major Features
+- <list key features from commit message>
+
+### Fixes
+- <list fixes from commit message>
+
+### Technical Notes
+- <any important technical details>
+
+## Changes
+- X files changed: +additions, -deletions
+- Conflicts resolved: <count>
+
+## Quality Checks
+- ✅ Type checking passed
+- ✅ Linting passed
+- ✅ Tests passed
+
+## Upstream Source
+Merged from: <upstream repo URL>
+Commits: <merge-base>..<upstream-tip>
+EOF
+)"
+```
+
+**Note on fork behavior:** If your repo is a fork, `gh pr create` by default creates a PR to the upstream parent repository. To create a PR to your own fork's main branch instead, use:
+```bash
+gh pr create --base main --head <current-branch> --repo <your-username>/<repo-name>
+```
+
+### 7. Cleanup Temp Files
 
 ```bash
 rm -f /tmp/merge-upstream-msg.txt

@@ -109,13 +109,10 @@ git reset --soft "$MERGE_BASE"
 git commit -F "$COMMIT_MSG_FILE"
 success "Squashed commits with custom message"
 
-# Return to original branch
-git checkout "$CURRENT_BRANCH"
-
-# Attempt merge
-info "Attempting merge..."
-if git merge "$TEMP_BRANCH" --no-ff --no-edit; then
-  success "Merge completed successfully with no conflicts"
+# Rebase the squashed commit onto current branch
+info "Rebasing squashed commit onto $CURRENT_BRANCH..."
+if git rebase "$TEMP_BRANCH" "$CURRENT_BRANCH"; then
+  success "Rebase completed successfully with no conflicts"
   CONFLICTS=0
 else
   warning "Conflicts detected"
