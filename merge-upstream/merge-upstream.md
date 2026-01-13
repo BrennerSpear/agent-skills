@@ -10,42 +10,41 @@ If no upstream branch is specified, defaults to `origin/main`.
 
 ## Process
 
-### 1. Analyze the Current State
+This skill uses `merge-upstream.sh` for all deterministic operations and focuses on intelligent analysis and decision-making.
+
+### 1. Execute Initial Setup
 
 ```bash
-# Get current branch name
-current_branch=$(git branch --show-current)
+# The script will handle:
+# - Validation (git repo, clean working directory, not on main/master)
+# - Creating backup branch
+# - Fetching upstream
+# - Finding merge base
+# - Exporting commit list to /tmp/merge-upstream-commits.txt
 
-# Get upstream branch (default: origin/main)
-upstream="${1:-origin/main}"
+# Get skill directory
+SKILL_DIR="$HOME/repos/claude-code-skills/merge-upstream"
+UPSTREAM="${1:-origin/main}"
 
-# Fetch latest changes
-git fetch origin
-
-# Find the merge base (common ancestor)
-merge_base=$(git merge-base HEAD "$upstream")
-
-# List commits from upstream that aren't in current branch
-echo "Analyzing upstream commits..."
-git log --oneline "$merge_base..$upstream"
+# First, run script to export commit data (will fail waiting for commit message, that's expected)
+"$SKILL_DIR/merge-upstream.sh" "$UPSTREAM" || true
 ```
 
-### 2. Analyze and Categorize Commits
+### 2. Analyze Commits and Generate Message
 
-Extract all commit messages from upstream and categorize them:
-- Identify reverts (commits that undo previous commits)
-- Identify pairs of commits that cancel each other out
-- Group related changes (features, fixes, refactors, etc.)
-- Note any breaking changes or major refactors
+Read the exported commit list from `/tmp/merge-upstream-commits.txt` and analyze:
 
-### 3. Create Squashed Commit Message
+- **Identify reverts**: Look for commits with "Revert" in message
+- **Find canceling pairs**: Commits that undo each other (e.g., "Add X" followed by "Remove X")
+- **Categorize changes**: Group into features, fixes, refactors, chores, etc.
+- **Extract key changes**: Dependencies, breaking changes, bug fixes
 
 Generate an intelligent commit message that:
 - Has a clear, concise title (50 chars or less)
-- Summarizes all meaningful changes in bullet points
-- Omits commits that were reverted or canceled out
-- Groups related changes together
-- Uses conventional commit format when appropriate (feat:, fix:, refactor:, etc.)
+- Summarizes meaningful changes in bullet points
+- Omits reverted/canceled commits
+- Groups related changes
+- Uses conventional commit format
 
 Example format:
 ```
@@ -58,156 +57,158 @@ feat: merge upstream changes from Gary
 - Fix race condition in cleanup handler
 
 Technical notes:
-- Removed experimental feature X (unstable)
+- Removed experimental feature X (was unstable)
 - Breaking: Changed SessionConfig interface
 ```
 
-### 4. Create Temporary Branch and Squash
+Write this message to `/tmp/merge-upstream-msg.txt`.
+
+### 3. Execute Merge
 
 ```bash
-# Create a temporary branch at upstream
-git branch temp-merge-upstream "$upstream"
-git checkout temp-merge-upstream
-
-# Squash all commits since merge base into one
-git reset --soft "$merge_base"
-git commit -m "<generated message from step 3>"
-```
-
-### 5. Merge into Current Branch
-
-```bash
-# Return to original branch
-git checkout "$current_branch"
-
-# Attempt merge
-if git merge temp-merge-upstream --no-ff -m "Merge upstream changes"; then
-  echo "✓ Merge successful with no conflicts"
-else
-  echo "⚠ Conflicts detected - resolving..."
+# Now run the script with the commit message
+if "$SKILL_DIR/merge-upstream.sh" "$UPSTREAM" "/tmp/merge-upstream-msg.txt"; then
+  echo "✓ Merge completed successfully!"
+  exit 0
+elif [ $? -eq 2 ]; then
+  echo "⚠ Conflicts detected - analyzing..."
   # Continue to conflict resolution
+else
+  echo "✗ Merge failed"
+  exit 1
 fi
 ```
 
-### 6. Intelligent Conflict Resolution
+### 4. Intelligent Conflict Resolution
 
-When conflicts occur:
+When conflicts occur (script exits with code 2), conflict details are exported to `/tmp/merge-upstream-conflicts/`:
 
-1. **List all conflicts:**
-   ```bash
-   git diff --name-only --diff-filter=U
-   ```
+- `file-list.txt` - List of conflicted files
+- `<filename>.ours` - Your version
+- `<filename>.theirs` - Upstream version
 
-2. **For each conflicted file:**
-   - Read both versions (ours vs theirs)
-   - Analyze the changes:
-     - If changes are in different sections → keep both
-     - If changes overlap → prefer ours (current branch) unless Gary's is clearly better
-     - "Clearly better" means:
-       - Fixes a bug that ours doesn't
-       - Adds error handling or type safety
-       - Uses more recent API or best practices
-       - Includes tests or documentation
-   - Ask user if uncertain about which version to keep
+For each conflicted file:
 
-3. **Apply resolution strategy:**
-   ```bash
-   # For simple cases where we want ours:
-   git checkout --ours <file>
+1. **Read both versions**
+2. **Analyze the differences**:
+   - If changes are in different sections → merge both
+   - If changes overlap → prefer ours (current branch) unless theirs is clearly better
 
-   # For simple cases where we want theirs:
-   git checkout --theirs <file>
+3. **"Clearly better" means**:
+   - Fixes a bug that ours doesn't
+   - Adds error handling or type safety
+   - Uses more recent API or best practices
+   - Includes tests or documentation
+   - Removes security vulnerability
 
-   # For complex merges, manually edit and resolve
-   ```
+4. **Apply resolution**:
 
-4. **Stage resolved files:**
-   ```bash
-   git add <resolved-file>
-   ```
+```bash
+# For files where we want ours:
+git checkout --ours <file>
+git add <file>
 
-### 7. Verify Code Quality
+# For files where we want theirs:
+git checkout --theirs <file>
+git add <file>
+
+# For complex merges, read both versions and create merged version:
+# Read ours: /tmp/merge-upstream-conflicts/<file>.ours
+# Read theirs: /tmp/merge-upstream-conflicts/<file>.theirs
+# Write merged version to <file>
+git add <file>
+```
+
+5. **Ask user for confirmation on ambiguous cases**
+
+### 5. Complete Merge
 
 After resolving all conflicts:
 
 ```bash
-# Run type checking
-if command -v bun &> /dev/null; then
-  bun run typecheck || echo "⚠ Type errors detected"
-fi
+# Complete the merge
+git commit --no-edit
 
-# Run linting
-if [ -f "package.json" ]; then
-  if bun run lint &> /dev/null; then
-    echo "✓ Linting passed"
-  else
-    echo "⚠ Linting issues detected"
-  fi
-fi
-
-# Run tests
-if [ -f "package.json" ]; then
-  if bun test &> /dev/null; then
-    echo "✓ Tests passed"
-  else
-    echo "⚠ Tests failed - review changes"
-  fi
-fi
+# Run quality checks and cleanup
+"$SKILL_DIR/merge-upstream.sh" "$UPSTREAM" "/tmp/merge-upstream-msg.txt" "post-merge"
 ```
 
-### 8. Complete Merge and Cleanup
+The script will:
+- Run typecheck (if configured)
+- Run linting (if configured)
+- Run tests (if configured)
+- Delete temporary and backup branches
+- Show merge summary
+
+### 6. Cleanup Temp Files
 
 ```bash
-# Complete the merge if there were conflicts
-if [ -f ".git/MERGE_HEAD" ]; then
-  git commit --no-edit
-fi
-
-# Delete temporary branch
-git branch -D temp-merge-upstream
-
-# Show summary
-echo "✓ Merge complete!"
-echo ""
-echo "Summary:"
-git log -1 --stat
+rm -f /tmp/merge-upstream-msg.txt
+rm -f /tmp/merge-upstream-commits.txt
+rm -rf /tmp/merge-upstream-conflicts
 ```
 
 ## Conflict Resolution Guidelines
 
 Default preference order:
 1. **Ours (current branch)** - the default choice
-2. **Theirs (upstream)** - only if clearly better based on:
-   - Bug fixes
-   - Security improvements
-   - Better error handling
-   - More complete type definitions
-   - More comprehensive tests
-   - Better documentation
+2. **Theirs (upstream)** - only if clearly better
 3. **Manual merge** - when both have valuable changes
+4. **Ask user** - when uncertain
 
-## Safety Checks
+## Script Exit Codes
 
-Before running:
-- Ensure working directory is clean (no uncommitted changes)
-- Confirm current branch is not main/master
-- Verify tests pass before starting merge
-- Create a backup branch: `git branch backup-$(git branch --show-current)-$(date +%Y%m%d-%H%M%S)`
+- `0` - Success (no conflicts or merge completed)
+- `1` - Error (validation failed, merge failed)
+- `2` - Conflicts detected (need resolution)
+
+## Safety Features
+
+The script automatically:
+- Validates clean working directory
+- Prevents merging into main/master
+- Creates backup branch before starting
+- Exports all data needed for intelligent analysis
+- Provides clear recovery steps
 
 ## Recovery
 
 If something goes wrong:
+
 ```bash
 # Abort the merge
 git merge --abort
 
-# Or restore from backup
+# Restore from backup
 git checkout backup-<branch>-<timestamp>
+
+# Delete backup when confirmed working
+git branch -D backup-<branch>-<timestamp>
 ```
 
-## Notes
+## Example Session
 
-- This skill assumes you want to preserve your branch's history and add upstream changes as a single commit
-- Conflicts are resolved conservatively (preferring your code) unless upstream is clearly superior
-- All quality checks must pass before the merge is considered complete
-- The skill will ask for confirmation on ambiguous conflict resolutions
+```bash
+# User runs the skill
+/merge-upstream origin/main
+
+# Skill executes:
+# 1. Runs script to export commits
+# 2. Analyzes 15 commits, finds 2 reverts, groups into 8 meaningful changes
+# 3. Generates commit message
+# 4. Runs script to merge
+# 5. Detects 3 conflicts
+# 6. Analyzes conflicts:
+#    - src/config.ts: Both added different options → merge both
+#    - src/server.ts: Ours has old API, theirs has new API → use theirs
+#    - README.md: Different wording → prefer ours
+# 7. Resolves conflicts
+# 8. Completes merge
+# 9. Runs tests (pass)
+# 10. Shows summary
+```
+
+## Files
+
+- `merge-upstream.sh` - Deterministic bash script
+- `merge-upstream.md` - This skill file
